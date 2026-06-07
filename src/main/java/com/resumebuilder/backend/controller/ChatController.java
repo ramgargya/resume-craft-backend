@@ -61,8 +61,8 @@ public class ChatController {
         return (Long) authentication.getDetails();
     }
 
-    @GetMapping
-    public ResponseEntity<?> getChatHistory() {
+    @GetMapping("/threads")
+    public ResponseEntity<?> getChatThreads() {
         Long userId = getAuthenticatedUserId();
         if (userId == null) {
             return new ResponseEntity<>(HttpStatus.UNAUTHORIZED);
@@ -76,8 +76,70 @@ public class ChatController {
             return new ResponseEntity<>("Please upgrade to the Paid plan to use the AI chat assistant.", HttpStatus.FORBIDDEN);
         }
 
-        List<ChatMessage> history = chatMessageRepository.findByUserIdOrderByTimestampAsc(userId);
-        return new ResponseEntity<>(history, HttpStatus.OK);
+        List<Object[]> threadsData = chatMessageRepository.findUniqueThreadsByUserId(userId);
+        List<Map<String, Object>> threadsList = new ArrayList<>();
+        for (Object[] row : threadsData) {
+            Map<String, Object> thread = new HashMap<>();
+            thread.put("threadId", row[0]);
+            thread.put("title", row[1] != null ? row[1] : "Untitled Chat");
+            thread.put("lastUpdated", row[2]);
+            threadsList.add(thread);
+        }
+        return new ResponseEntity<>(threadsList, HttpStatus.OK);
+    }
+
+    @GetMapping
+    public ResponseEntity<?> getChatHistory(@RequestParam(required = false) String threadId) {
+        Long userId = getAuthenticatedUserId();
+        if (userId == null) {
+            return new ResponseEntity<>(HttpStatus.UNAUTHORIZED);
+        }
+
+        AppUser user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return new ResponseEntity<>(HttpStatus.UNAUTHORIZED);
+        }
+        if (!"PAID".equals(user.getSubscriptionTier()) && !"ADMIN".equals(user.getRole())) {
+            return new ResponseEntity<>("Please upgrade to the Paid plan to use the AI chat assistant.", HttpStatus.FORBIDDEN);
+        }
+
+        if (threadId != null && !threadId.trim().isEmpty()) {
+            List<ChatMessage> history = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, threadId.trim());
+            return new ResponseEntity<>(history, HttpStatus.OK);
+        } else {
+            List<Object[]> threads = chatMessageRepository.findUniqueThreadsByUserId(userId);
+            if (!threads.isEmpty()) {
+                String recentThreadId = (String) threads.get(0)[0];
+                List<ChatMessage> history = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, recentThreadId);
+                return new ResponseEntity<>(history, HttpStatus.OK);
+            } else {
+                return new ResponseEntity<>(new ArrayList<ChatMessage>(), HttpStatus.OK);
+            }
+        }
+    }
+
+    private String extractTitleFromMessage(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return "Untitled Chat";
+        }
+        String clean = message.replaceAll("\\s+", " ").trim();
+        String[] words = clean.split(" ");
+        StringBuilder sb = new StringBuilder();
+        int wordsToTake = Math.min(words.length, 5);
+        for (int i = 0; i < wordsToTake; i++) {
+            sb.append(words[i]);
+            if (i < wordsToTake - 1) {
+                sb.append(" ");
+            }
+        }
+        String title = sb.toString();
+        if (words.length > 5) {
+            title += "...";
+        }
+        if (title.length() > 35) {
+            title = title.substring(0, 32) + "...";
+        }
+        return title;
     }
 
     @PostMapping
@@ -100,24 +162,59 @@ public class ChatController {
             return new ResponseEntity<>("Message content is required.", HttpStatus.BAD_REQUEST);
         }
 
+        String threadId = request.get("threadId");
+        if (threadId == null || threadId.trim().isEmpty()) {
+            threadId = java.util.UUID.randomUUID().toString();
+        } else {
+            threadId = threadId.trim();
+        }
+
         try {
+            List<ChatMessage> dbHistory = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, threadId);
+            String requestTitle = request.get("threadTitle");
+            String activeTitle = requestTitle;
+
+            if (dbHistory.isEmpty()) {
+                if (activeTitle == null || activeTitle.trim().isEmpty()) {
+                    activeTitle = extractTitleFromMessage(userMessage);
+                } else {
+                    activeTitle = activeTitle.trim();
+                }
+            } else {
+                if (requestTitle != null && !requestTitle.trim().isEmpty()) {
+                    activeTitle = requestTitle.trim();
+                    String firstMsgTitle = dbHistory.get(0).getThreadTitle();
+                    if (!activeTitle.equals(firstMsgTitle)) {
+                        for (ChatMessage msg : dbHistory) {
+                            msg.setThreadTitle(activeTitle);
+                        }
+                        chatMessageRepository.saveAll(dbHistory);
+                    }
+                } else {
+                    activeTitle = dbHistory.get(0).getThreadTitle();
+                }
+                if (activeTitle == null || activeTitle.trim().isEmpty()) {
+                    activeTitle = "Untitled Chat";
+                }
+            }
+
             // 1. Save user message to database
             ChatMessage userChat = ChatMessage.builder()
                     .userId(userId)
                     .role("user")
                     .content(userMessage.trim())
                     .timestamp(LocalDateTime.now())
+                    .threadId(threadId)
+                    .threadTitle(activeTitle)
                     .build();
             chatMessageRepository.save(userChat);
 
-            // 2. Fetch past conversation history
-            List<ChatMessage> dbHistory = chatMessageRepository.findByUserIdOrderByTimestampAsc(userId);
+            // 2. Fetch past conversation history for this thread
+            List<ChatMessage> updatedHistory = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, threadId);
 
             // 3. Build List of Content for the model history
             List<Content> contents = new ArrayList<>();
-            for (ChatMessage msg : dbHistory) {
-                // Determine the correct role name for the Gemini API:
-                // "user" represents user turn, "model" represents model turn.
+            for (ChatMessage msg : updatedHistory) {
                 String role = msg.getRole();
                 if (!"user".equals(role) && !"model".equals(role)) {
                     role = "user";
@@ -161,6 +258,8 @@ public class ChatController {
                     .role("model")
                     .content(modelReply)
                     .timestamp(LocalDateTime.now())
+                    .threadId(threadId)
+                    .threadTitle(activeTitle)
                     .build();
             ChatMessage savedModelChat = chatMessageRepository.save(modelChat);
 
@@ -172,7 +271,7 @@ public class ChatController {
     }
 
     @DeleteMapping
-    public ResponseEntity<?> clearChatHistory() {
+    public ResponseEntity<?> clearChatHistory(@RequestParam(required = false) String threadId) {
         Long userId = getAuthenticatedUserId();
         if (userId == null) {
             return new ResponseEntity<>(HttpStatus.UNAUTHORIZED);
@@ -187,10 +286,14 @@ public class ChatController {
         }
 
         try {
-            chatMessageRepository.deleteByUserId(userId);
+            if (threadId != null && !threadId.trim().isEmpty()) {
+                chatMessageRepository.deleteByUserIdAndThreadId(userId, threadId.trim());
+            } else {
+                chatMessageRepository.deleteByUserId(userId);
+            }
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Failed to clear chat: {}", e.getMessage());
             return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }

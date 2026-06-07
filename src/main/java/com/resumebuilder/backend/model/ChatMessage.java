@@ -23,4 +23,7 @@ public class ChatMessage {
     private String content;
 
     private LocalDateTime timestamp;
+
+    private String threadId;
+    private String threadTitle;
 }
