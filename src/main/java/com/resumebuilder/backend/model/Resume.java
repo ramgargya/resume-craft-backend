@@ -8,7 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "resumes")
+@Table(name = "resumes", indexes = {
+    @Index(name = "idx_resume_user_id", columnList = "userId")
+})
 @Getter
 @Setter
 @NoArgsConstructor

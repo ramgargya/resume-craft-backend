@@ -9,6 +9,14 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+    open-in-view: false
+  task:
+    execution:
+      pool:
+        core-size: 5
+        max-size: 20
+        queue-capacity: 1000
+        keep-alive: 60s
     properties:
       hibernate:
         format_sql: true
