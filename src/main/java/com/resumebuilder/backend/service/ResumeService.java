@@ -2,6 +2,7 @@ package com.resumebuilder.backend.service;
 
 import com.resumebuilder.backend.model.*;
 import com.resumebuilder.backend.repository.ResumeRepository;
+import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,16 +20,36 @@ public class ResumeService {
         this.resumeRepository = resumeRepository;
     }
 
+    private void initializeResumeCollections(Resume resume) {
+        if (resume == null) return;
+        Hibernate.initialize(resume.getExperienceDetails());
+        Hibernate.initialize(resume.getEducationDetails());
+        Hibernate.initialize(resume.getProjectDetails());
+        Hibernate.initialize(resume.getSkills());
+        Hibernate.initialize(resume.getAchievements());
+        Hibernate.initialize(resume.getExtracurriculars());
+        Hibernate.initialize(resume.getHobbies());
+    }
+
+    @Transactional(readOnly = true)
     public List<Resume> getAllResumes() {
-        return resumeRepository.findAll();
+        List<Resume> resumes = resumeRepository.findAll();
+        resumes.forEach(this::initializeResumeCollections);
+        return resumes;
     }
 
+    @Transactional(readOnly = true)
     public List<Resume> getResumesByUserId(Long userId) {
-        return resumeRepository.findByUserId(userId);
+        List<Resume> resumes = resumeRepository.findByUserId(userId);
+        resumes.forEach(this::initializeResumeCollections);
+        return resumes;
     }
 
+    @Transactional(readOnly = true)
     public Optional<Resume> getResumeById(Long id) {
-        return resumeRepository.findById(id);
+        Optional<Resume> resumeOpt = resumeRepository.findById(id);
+        resumeOpt.ifPresent(this::initializeResumeCollections);
+        return resumeOpt;
     }
 
     @Transactional
@@ -47,7 +68,9 @@ public class ResumeService {
             resume.getSkills().forEach(detail -> detail.setResume(resume));
         }
         
-        return resumeRepository.save(resume);
+        Resume savedResume = resumeRepository.save(resume);
+        initializeResumeCollections(savedResume);
+        return savedResume;
     }
 
     @Transactional

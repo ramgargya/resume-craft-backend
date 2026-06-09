@@ -24,7 +24,7 @@ spring:
     host: smtp.gmail.com
     port: 465
     username: ramsharmaperfectmoker@gmail.com
-    password: tvbyjmecmecsesvq
+    password: vvomdaspdxoseqiq
     properties:
       mail:
         smtp:
