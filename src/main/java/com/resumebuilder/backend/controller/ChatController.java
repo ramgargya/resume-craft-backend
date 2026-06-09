@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -142,8 +144,142 @@ public class ChatController {
         return title;
     }
 
+    @SuppressWarnings("unchecked")
+    private String formatDocumentContext(Map<String, Object> docContext) {
+        if (docContext == null) return "";
+        try {
+            String type = (String) docContext.get("type");
+            Map<String, Object> data = (Map<String, Object>) docContext.get("data");
+            if (data == null) return "";
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("\n\nHere is the current real-time content of the user's document they are currently editing:\n");
+            sb.append("Document Type: ").append(type).append("\n");
+
+            if ("resume_form".equals(type)) {
+                sb.append("--- RESUME FORM DETAILS ---\n");
+                sb.append("Name: ").append(data.get("name")).append("\n");
+                sb.append("Email: ").append(data.get("email")).append("\n");
+                sb.append("Phone: ").append(data.get("phone")).append("\n");
+                sb.append("Experience Type: ").append(data.get("experienceType")).append("\n");
+                sb.append("Summary: ").append(data.get("summary")).append("\n");
+                
+                List<Map<String, Object>> experiences = (List<Map<String, Object>>) data.get("experienceDetails");
+                if (experiences != null && !experiences.isEmpty()) {
+                    sb.append("\nWork Experience:\n");
+                    for (Map<String, Object> exp : experiences) {
+                        sb.append("- ").append(exp.get("role")).append(" at ").append(exp.get("companyName"))
+                          .append(" (").append(exp.get("startDate")).append(" to ").append(exp.get("endDate")).append(")\n")
+                          .append("  Description: ").append(exp.get("description")).append("\n");
+                    }
+                }
+                
+                List<Map<String, Object>> education = (List<Map<String, Object>>) data.get("educationDetails");
+                if (education != null && !education.isEmpty()) {
+                    sb.append("\nEducation:\n");
+                    for (Map<String, Object> edu : education) {
+                        sb.append("- ").append(edu.get("degree")).append(" in ").append(edu.get("fieldOfStudy"))
+                          .append(" at ").append(edu.get("institution")).append(" (Graduation: ").append(edu.get("graduationDate")).append(")\n");
+                    }
+                }
+                
+                List<Map<String, Object>> projects = (List<Map<String, Object>>) data.get("projectDetails");
+                if (projects != null && !projects.isEmpty()) {
+                    sb.append("\nProjects:\n");
+                    for (Map<String, Object> proj : projects) {
+                        sb.append("- ").append(proj.get("title")).append(" (Tech: ").append(proj.get("technologies")).append(")\n")
+                          .append("  Link: ").append(proj.get("link")).append("\n")
+                          .append("  Description: ").append(proj.get("description")).append("\n");
+                    }
+                }
+
+                List<Map<String, Object>> skills = (List<Map<String, Object>>) data.get("skills");
+                if (skills != null && !skills.isEmpty()) {
+                    sb.append("\nSkills:\n");
+                    for (Map<String, Object> skill : skills) {
+                        sb.append("- ").append(skill.get("name")).append(" (Proficiency: ").append(skill.get("proficiency")).append(")\n");
+                    }
+                }
+
+                List<String> achievements = (List<String>) data.get("achievements");
+                if (achievements != null && !achievements.isEmpty()) {
+                    sb.append("\nAchievements:\n");
+                    for (String ach : achievements) {
+                        sb.append("- ").append(ach).append("\n");
+                    }
+                }
+
+                List<String> activities = (List<String>) data.get("extracurriculars");
+                if (activities != null && !activities.isEmpty()) {
+                    sb.append("\nExtracurricular Activities:\n");
+                    for (String act : activities) {
+                        sb.append("- ").append(act).append("\n");
+                    }
+                }
+
+                List<String> hobbies = (List<String>) data.get("hobbies");
+                if (hobbies != null && !hobbies.isEmpty()) {
+                    sb.append("\nHobbies:\n");
+                    for (String hb : hobbies) {
+                        sb.append("- ").append(hb).append("\n");
+                    }
+                }
+
+            } else if ("resume_whiteboard".equals(type)) {
+                sb.append("--- RESUME WHITEBOARD DETAILS ---\n");
+                sb.append("General Info:\n");
+                sb.append("Name: ").append(data.get("name")).append("\n");
+                sb.append("Email: ").append(data.get("email")).append("\n");
+                sb.append("Phone: ").append(data.get("phone")).append("\n");
+                
+                String whiteboardDataStr = (String) data.get("whiteboardData");
+                if (whiteboardDataStr != null && !whiteboardDataStr.trim().isEmpty()) {
+                    try {
+                        ObjectMapper mapper = new ObjectMapper();
+                        List<Map<String, Object>> elements = mapper.readValue(whiteboardDataStr, new TypeReference<List<Map<String, Object>>>() {});
+                        if (elements != null && !elements.isEmpty()) {
+                            sb.append("\nWhiteboard Canvas Elements:\n");
+                            for (Map<String, Object> el : elements) {
+                                String elType = (String) el.get("type");
+                                int page = el.get("page") != null ? ((Number) el.get("page")).intValue() + 1 : 1;
+                                if ("text".equals(elType)) {
+                                    sb.append("- [Page ").append(page).append(" Text Element]: \"")
+                                      .append(el.get("text")).append("\" (Size: ").append(el.get("fontSize")).append("px)\n");
+                                } else if ("icon".equals(elType)) {
+                                    sb.append("- [Page ").append(page).append(" Icon]: ").append(el.get("iconType")).append("\n");
+                                } else if ("shape".equals(elType)) {
+                                    sb.append("- [Page ").append(page).append(" Shape]: ").append(el.get("shapeType")).append("\n");
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        sb.append("\nRaw Whiteboard Data (JSON String):\n").append(whiteboardDataStr).append("\n");
+                    }
+                }
+            } else if ("cover_letter".equals(type)) {
+                sb.append("--- COVER LETTER DETAILS ---\n");
+                sb.append("Sender Name: ").append(data.get("senderName")).append("\n");
+                sb.append("Sender Email: ").append(data.get("senderEmail")).append("\n");
+                sb.append("Sender Phone: ").append(data.get("senderPhone")).append("\n");
+                sb.append("Recipient: ").append(data.get("recipientName")).append(", ").append(data.get("recipientTitle"))
+                  .append(" at ").append(data.get("recipientCompany")).append("\n");
+                sb.append("Recipient Address: ").append(data.get("recipientAddress")).append("\n");
+                sb.append("Date: ").append(data.get("dateText")).append("\n");
+                sb.append("Subject: ").append(data.get("subjectLine")).append("\n");
+                sb.append("Salutation: ").append(data.get("salutation")).append("\n");
+                sb.append("\nLetter Body:\n").append(data.get("letterBody")).append("\n");
+                sb.append("\nSign Off:\n").append(data.get("signOff")).append("\n");
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            logger.error("Failed to format document context", e);
+            return "";
+        }
+    }
+
     @PostMapping
-    public ResponseEntity<?> sendMessage(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> sendMessage(@RequestBody Map<String, Object> request) {
         Long userId = getAuthenticatedUserId();
         if (userId == null) {
             return new ResponseEntity<>(HttpStatus.UNAUTHORIZED);
@@ -157,12 +293,12 @@ public class ChatController {
             return new ResponseEntity<>("Please upgrade to the Paid plan to use the AI chat assistant.", HttpStatus.FORBIDDEN);
         }
 
-        String userMessage = request.get("message");
+        String userMessage = (String) request.get("message");
         if (userMessage == null || userMessage.trim().isEmpty()) {
             return new ResponseEntity<>("Message content is required.", HttpStatus.BAD_REQUEST);
         }
 
-        String threadId = request.get("threadId");
+        String threadId = (String) request.get("threadId");
         if (threadId == null || threadId.trim().isEmpty()) {
             threadId = java.util.UUID.randomUUID().toString();
         } else {
@@ -171,7 +307,7 @@ public class ChatController {
 
         try {
             List<ChatMessage> dbHistory = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, threadId);
-            String requestTitle = request.get("threadTitle");
+            String requestTitle = (String) request.get("threadTitle");
             String activeTitle = requestTitle;
 
             if (dbHistory.isEmpty()) {
@@ -227,13 +363,22 @@ public class ChatController {
                 contents.add(contentTurn);
             }
 
-            // 4. Set up system instructions
-            Content systemInstruction = Content.fromParts(
-                    Part.fromText("You are a resume expert, ATS checker, and resume corrector. " +
-                            "You must exclusively answer questions related to resumes (such as resume sections, layouts, grammar, ATS compatibility, skills, professional summaries, and career/job applications). " +
-                            "If the user asks an out-of-scope question or any question not related to resumes, you must gracefully decline to answer (e.g., \"I'm sorry, but I can only answer questions related to resumes.\"). " +
-                            "All answers generated must be strictly in a short, concise format without any unnecessary filler or conversational fluff.")
-            );
+            // 4. Set up system instructions with real-time document context if available
+            String systemPromptText = "You are a resume expert, ATS checker, and resume corrector. " +
+                    "You must exclusively answer questions related to resumes (such as resume sections, layouts, grammar, ATS compatibility, skills, professional summaries, and career/job applications). " +
+                    "If the user asks an out-of-scope question or any question not related to resumes, you must gracefully decline to answer (e.g., \"I'm sorry, but I can only answer questions related to resumes.\"). " +
+                    "All answers generated must be strictly in a short, concise format without any unnecessary filler or conversational fluff.";
+
+            Object docContextObj = request.get("documentContext");
+            if (docContextObj instanceof Map) {
+                String formattedContext = formatDocumentContext((Map<String, Object>) docContextObj);
+                if (!formattedContext.isEmpty()) {
+                    systemPromptText += formattedContext;
+                    systemPromptText += "\n\nYou should refer to this current document context to answer the user's questions directly (e.g. if the user asks 'is my experience section good?', evaluate the experience details provided in this context). Do not ask the user to provide the content again unless it is missing from the context.";
+                }
+            }
+
+            Content systemInstruction = Content.fromParts(Part.fromText(systemPromptText));
 
             GenerateContentConfig config = GenerateContentConfig.builder()
                     .systemInstruction(systemInstruction)
