@@ -73,4 +73,97 @@ class BackendApplicationTests {
         // Clean up
         resumeService.deleteResume(saved.getId());
     }
+
+    @Autowired
+    private com.resumebuilder.backend.repository.UserRepository userRepository;
+
+    @Autowired
+    private com.resumebuilder.backend.repository.ChatMessageRepository chatMessageRepository;
+
+    @Test
+    void printDatabaseStats() {
+        System.out.println("=== DIAGNOSTIC DATABASE STATS ===");
+        System.out.println("Registered Users count: " + userRepository.count());
+        userRepository.findAll().forEach(user -> {
+            System.out.println("User: id=" + user.getId() + ", email=" + user.getEmail() + ", name=" + user.getName() + ", subscriptionTier=" + user.getSubscriptionTier() + ", role=" + user.getRole());
+        });
+        System.out.println("Chat Messages count: " + chatMessageRepository.count());
+        chatMessageRepository.findAll().forEach(msg -> {
+            System.out.println("ChatMessage: id=" + msg.getId() + ", userId=" + msg.getUserId() + ", threadId=" + msg.getThreadId() + ", threadTitle=" + msg.getThreadTitle() + ", role=" + msg.getRole() + ", content=" + msg.getContent());
+        });
+        System.out.println("=================================");
+    }
+
+    @Autowired
+    private com.resumebuilder.backend.controller.ChatController chatController;
+
+    @Test
+    void testUnsavedResumeChatFlow() {
+        // 1. Create a dummy user
+        com.resumebuilder.backend.model.AppUser testUser = com.resumebuilder.backend.model.AppUser.builder()
+                .email("unsaved-test@example.com")
+                .name("Unsaved Test User")
+                .password("password")
+                .provider("LOCAL")
+                .verified(true)
+                .subscriptionTier("PAID")
+                .build();
+        testUser = userRepository.save(testUser);
+        Long userId = testUser.getId();
+
+        // Set up security context authentication for controller calls
+        org.springframework.security.authentication.UsernamePasswordAuthenticationToken auth =
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        testUser.getEmail(), null, java.util.Collections.emptyList()
+                );
+        auth.setDetails(userId);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
+
+        try {
+            // 2. Chat with unsaved resume thread
+            java.util.Map<String, Object> chatRequest = new java.util.HashMap<>();
+            chatRequest.put("message", "Suggest a project in Spring Boot.");
+            chatRequest.put("threadId", "resume-unsaved");
+            chatRequest.put("threadTitle", "untitled - resume");
+
+            org.springframework.http.ResponseEntity<?> chatResponse = chatController.sendMessage(chatRequest);
+            Assertions.assertEquals(org.springframework.http.HttpStatus.OK, chatResponse.getStatusCode());
+
+            // 3. Close & Reopen: Fetch history for resume-unsaved
+            org.springframework.http.ResponseEntity<?> historyResponse = chatController.getChatHistory("resume-unsaved");
+            Assertions.assertEquals(org.springframework.http.HttpStatus.OK, historyResponse.getStatusCode());
+            java.util.List<?> history = (java.util.List<?>) historyResponse.getBody();
+            Assertions.assertNotNull(history);
+            Assertions.assertTrue(history.size() >= 2); // 1 user message + 1 model reply
+
+            // 4. Save the resume for the first time
+            Resume resume = Resume.builder()
+                    .name("My First Saved Resume")
+                    .email("unsaved-test@example.com")
+                    .userId(userId)
+                    .experienceDetails(new ArrayList<>())
+                    .build();
+            Resume savedResume = resumeService.saveResume(resume);
+            Assertions.assertNotNull(savedResume.getId());
+
+            // 5. Verify thread ID is migrated from "resume-unsaved" to "resume-<id>"
+            String expectedNewThreadId = "resume-" + savedResume.getId();
+            List<com.resumebuilder.backend.model.ChatMessage> oldHistory = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, "resume-unsaved");
+            Assertions.assertTrue(oldHistory.isEmpty(), "Old thread should be migrated and empty");
+
+            List<com.resumebuilder.backend.model.ChatMessage> newHistory = chatMessageRepository.findByUserIdAndThreadIdOrderByTimestampAsc(userId, expectedNewThreadId);
+            Assertions.assertFalse(newHistory.isEmpty(), "Migrated thread should not be empty");
+            Assertions.assertTrue(newHistory.size() >= 2);
+            Assertions.assertEquals("My First Saved Resume - resume", newHistory.get(0).getThreadTitle());
+
+            // Clean up
+            chatMessageRepository.deleteByUserId(userId);
+            resumeService.deleteResume(savedResume.getId());
+        } finally {
+            userRepository.delete(testUser);
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
 }
+
+

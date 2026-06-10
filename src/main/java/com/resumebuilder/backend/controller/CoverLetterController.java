@@ -4,6 +4,7 @@ import com.resumebuilder.backend.model.CoverLetter;
 import com.resumebuilder.backend.model.AppUser;
 import com.resumebuilder.backend.repository.CoverLetterRepository;
 import com.resumebuilder.backend.repository.UserRepository;
+import com.resumebuilder.backend.repository.ChatMessageRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,11 +26,16 @@ public class CoverLetterController {
 
     private final CoverLetterRepository coverLetterRepository;
     private final UserRepository userRepository;
+    private final ChatMessageRepository chatMessageRepository;
 
     @Autowired
-    public CoverLetterController(CoverLetterRepository coverLetterRepository, UserRepository userRepository) {
+    public CoverLetterController(
+            CoverLetterRepository coverLetterRepository, 
+            UserRepository userRepository,
+            ChatMessageRepository chatMessageRepository) {
         this.coverLetterRepository = coverLetterRepository;
         this.userRepository = userRepository;
+        this.chatMessageRepository = chatMessageRepository;
     }
 
     private Long getAuthenticatedUserId() {
@@ -96,8 +102,18 @@ public class CoverLetterController {
         }
 
         try {
+            boolean isNew = (coverLetter.getId() == null);
             coverLetter.setUserId(userId);
             CoverLetter saved = coverLetterRepository.save(coverLetter);
+
+            // Migrate unsaved chat thread if this is a newly saved cover letter
+            if (isNew) {
+                String newTitle = (saved.getName() != null && !saved.getName().trim().isEmpty()) 
+                    ? saved.getName().trim() + " - cover" 
+                    : "untitled - cover";
+                chatMessageRepository.migrateThreadId(userId, "cover-unsaved", "cover-" + saved.getId(), newTitle);
+            }
+
             return new ResponseEntity<>(saved, HttpStatus.CREATED);
         } catch (Exception e) {
             logger.error("Failed to save cover letter: {}", e.getMessage());

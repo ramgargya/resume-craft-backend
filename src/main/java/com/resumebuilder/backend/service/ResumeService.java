@@ -1,6 +1,7 @@
 package com.resumebuilder.backend.service;
 
 import com.resumebuilder.backend.model.*;
+import com.resumebuilder.backend.repository.ChatMessageRepository;
 import com.resumebuilder.backend.repository.ResumeRepository;
 import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +15,12 @@ import java.util.Optional;
 public class ResumeService {
 
     private final ResumeRepository resumeRepository;
+    private final ChatMessageRepository chatMessageRepository;
 
     @Autowired
-    public ResumeService(ResumeRepository resumeRepository) {
+    public ResumeService(ResumeRepository resumeRepository, ChatMessageRepository chatMessageRepository) {
         this.resumeRepository = resumeRepository;
+        this.chatMessageRepository = chatMessageRepository;
     }
 
     private void initializeResumeCollections(Resume resume) {
@@ -54,6 +57,7 @@ public class ResumeService {
 
     @Transactional
     public Resume saveResume(Resume resume) {
+        boolean isNew = (resume.getId() == null);
         // Correctly wire back-references for JPA child entities before saving
         if (resume.getExperienceDetails() != null) {
             resume.getExperienceDetails().forEach(detail -> detail.setResume(resume));
@@ -69,6 +73,15 @@ public class ResumeService {
         }
         
         Resume savedResume = resumeRepository.save(resume);
+
+        // Migrate unsaved chat thread if this is a newly saved resume
+        if (isNew && resume.getUserId() != null) {
+            String newTitle = (savedResume.getName() != null && !savedResume.getName().trim().isEmpty()) 
+                ? savedResume.getName().trim() + " - resume" 
+                : "untitled - resume";
+            chatMessageRepository.migrateThreadId(resume.getUserId(), "resume-unsaved", "resume-" + savedResume.getId(), newTitle);
+        }
+
         initializeResumeCollections(savedResume);
         return savedResume;
     }

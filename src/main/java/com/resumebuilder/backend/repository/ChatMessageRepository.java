@@ -27,4 +27,16 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     @Transactional
     void deleteByUserIdAndThreadId(Long userId, String threadId);
+
+    @Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(
+        "UPDATE ChatMessage c SET c.threadId = :newThreadId, c.threadTitle = :newTitle WHERE c.userId = :userId AND c.threadId = :oldThreadId"
+    )
+    void migrateThreadId(
+        @org.springframework.data.repository.query.Param("userId") Long userId,
+        @org.springframework.data.repository.query.Param("oldThreadId") String oldThreadId,
+        @org.springframework.data.repository.query.Param("newThreadId") String newThreadId,
+        @org.springframework.data.repository.query.Param("newTitle") String newTitle
+    );
 }
