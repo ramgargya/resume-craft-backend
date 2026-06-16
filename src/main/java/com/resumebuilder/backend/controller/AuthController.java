@@ -381,7 +381,7 @@ public class AuthController {
         }
 
         AppUser user = userOpt.get();
-        if (!"LOCAL".equals(user.getProvider())) {
+        if (!"LOCAL".equals(user.getProvider()) && !"GOOGLE".equals(user.getProvider())) {
             return new ResponseEntity<>("Account is registered via " + user.getProvider() + ". Password resets are unavailable.", HttpStatus.BAD_REQUEST);
         }
 
@@ -420,6 +420,7 @@ public class AuthController {
         }
 
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setProvider("LOCAL");
         user.setOtp(null);
         user.setOtpExpiry(null);
         userRepository.save(user);
@@ -451,22 +452,24 @@ public class AuthController {
             user.setName(payload.get("name"));
         }
 
-        if (payload.containsKey("newPassword") && "LOCAL".equalsIgnoreCase(user.getProvider())) {
-            String oldPassword = payload.get("oldPassword");
+        if (payload.containsKey("newPassword")) {
             String newPassword = payload.get("newPassword");
-
-            if (oldPassword == null || oldPassword.trim().isEmpty()) {
-                return new ResponseEntity<>("Current password is required to change password.", HttpStatus.BAD_REQUEST);
-            }
             if (newPassword == null || newPassword.trim().isEmpty()) {
                 return new ResponseEntity<>("New password cannot be empty.", HttpStatus.BAD_REQUEST);
             }
 
-            if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
-                return new ResponseEntity<>("Current password does not match database record.", HttpStatus.BAD_REQUEST);
+            if ("LOCAL".equalsIgnoreCase(user.getProvider()) && user.getPassword() != null && !user.getPassword().isEmpty()) {
+                String oldPassword = payload.get("oldPassword");
+                if (oldPassword == null || oldPassword.trim().isEmpty()) {
+                    return new ResponseEntity<>("Current password is required to change password.", HttpStatus.BAD_REQUEST);
+                }
+                if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                    return new ResponseEntity<>("Current password does not match database record.", HttpStatus.BAD_REQUEST);
+                }
             }
 
             user.setPassword(passwordEncoder.encode(newPassword));
+            user.setProvider("LOCAL");
         }
 
         userRepository.save(user);
