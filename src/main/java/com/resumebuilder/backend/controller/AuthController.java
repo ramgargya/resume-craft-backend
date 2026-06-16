@@ -426,4 +426,93 @@ public class AuthController {
 
         return new ResponseEntity<>(Map.of("message", "Password reset successfully. Please log in with your new password."), HttpStatus.OK);
     }
+
+    @PutMapping("/profile")
+    public ResponseEntity<?> updateProfile(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                           @RequestBody Map<String, String> payload) {
+        org.springframework.security.core.Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication instanceof org.springframework.security.authentication.UsernamePasswordAuthenticationToken)) {
+            return new ResponseEntity<>("Unauthorized", HttpStatus.UNAUTHORIZED);
+        }
+        Long userId = (Long) ((org.springframework.security.authentication.UsernamePasswordAuthenticationToken) authentication).getDetails();
+        if (userId == null) {
+            return new ResponseEntity<>("Unauthorized", HttpStatus.UNAUTHORIZED);
+        }
+
+        Optional<AppUser> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return new ResponseEntity<>("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        AppUser user = userOpt.get();
+        
+        if (payload.containsKey("name")) {
+            user.setName(payload.get("name"));
+        }
+
+        if (payload.containsKey("newPassword") && "LOCAL".equalsIgnoreCase(user.getProvider())) {
+            String oldPassword = payload.get("oldPassword");
+            String newPassword = payload.get("newPassword");
+
+            if (oldPassword == null || oldPassword.trim().isEmpty()) {
+                return new ResponseEntity<>("Current password is required to change password.", HttpStatus.BAD_REQUEST);
+            }
+            if (newPassword == null || newPassword.trim().isEmpty()) {
+                return new ResponseEntity<>("New password cannot be empty.", HttpStatus.BAD_REQUEST);
+            }
+
+            if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                return new ResponseEntity<>("Current password does not match database record.", HttpStatus.BAD_REQUEST);
+            }
+
+            user.setPassword(passwordEncoder.encode(newPassword));
+        }
+
+        userRepository.save(user);
+        logger.info("User profile updated for user id: {}", userId);
+
+        Map<String, Object> responsePayload = new HashMap<>();
+        responsePayload.put("id", user.getId());
+        responsePayload.put("email", user.getEmail());
+        responsePayload.put("name", user.getName());
+        responsePayload.put("provider", user.getProvider());
+        responsePayload.put("role", user.getRole());
+        responsePayload.put("subscriptionTier", user.getSubscriptionTier());
+
+        return new ResponseEntity<>(responsePayload, HttpStatus.OK);
+    }
+
+    @PostMapping("/profile/verify-password")
+    public ResponseEntity<?> verifyPassword(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                            @RequestBody Map<String, String> payload) {
+        org.springframework.security.core.Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication instanceof org.springframework.security.authentication.UsernamePasswordAuthenticationToken)) {
+            return new ResponseEntity<>("Unauthorized", HttpStatus.UNAUTHORIZED);
+        }
+        Long userId = (Long) ((org.springframework.security.authentication.UsernamePasswordAuthenticationToken) authentication).getDetails();
+        if (userId == null) {
+            return new ResponseEntity<>("Unauthorized", HttpStatus.UNAUTHORIZED);
+        }
+
+        Optional<AppUser> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return new ResponseEntity<>("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        AppUser user = userOpt.get();
+        String password = payload.get("password");
+
+        if (password == null || password.trim().isEmpty()) {
+            return new ResponseEntity<>(Map.of("valid", false, "message", "Password is required"), HttpStatus.BAD_REQUEST);
+        }
+
+        boolean matches = passwordEncoder.matches(password, user.getPassword());
+        if (!matches) {
+            return new ResponseEntity<>(Map.of("valid", false, "message", "Incorrect password"), HttpStatus.BAD_REQUEST);
+        }
+
+        return new ResponseEntity<>(Map.of("valid", true), HttpStatus.OK);
+    }
 }
