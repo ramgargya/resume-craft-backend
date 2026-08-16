@@ -47,7 +47,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() // Allow pre-flight OPTIONS queries
-                .requestMatchers("/api/auth/**").permitAll() // Permit auth endpoints
+                .requestMatchers("/api/auth/**", "/api/health").permitAll() // Permit auth and health endpoints
                 .requestMatchers("/api/admin/**").hasRole("ADMIN") // Restrict admin endpoints to ADMIN role
                 .anyRequest().authenticated() // Block all other endpoints
             )
